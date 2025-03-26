@@ -1,0 +1,95 @@
+function extractInvoiceData() {
+  try {
+    var folderId = "11dXnw0ZHKOuLRSGDJ3y-JXuhVcCfX5jX"; 
+    var folder = DriveApp.getFolderById(folderId);
+    
+    // Open the destination spreadsheet and get "Sheet1"
+    var destinationFile = SpreadsheetApp.openById("1DI_F2IoPG15jOUwqW9-4ABp1c4JN5choYHRQiiLT3gM");
+    Logger.log("Destination file opened successfully.");
+    var destinationSheet = destinationFile.getSheetByName("Đối soát");
+    if (!destinationSheet) {
+      throw new Error("Sheet 'Sheet1' not found.");
+    }
+    Logger.log("Destination sheet accessed successfully.");
+    
+    // Clear existing data from range A2:P (keeping header row intact)
+    destinationSheet.getRange("A2:P").clearContent();
+    
+    var allData = [];
+    
+    // Recursive function to process the big folder and its subfolders.
+    function processFolder(currentFolder) {
+      var files = currentFolder.getFiles();
+      while (files.hasNext()) {
+        var file = files.next();
+        var fileName = file.getName();
+        
+        // Only process files names end with "(NEW)"
+        if (!fileName.endsWith("(NEW)")) {
+          continue;
+        }
+        Logger.log("Processing file: " + fileName);
+        
+        try {
+          // Open the file as a spreadsheet and get the "Payment Entry" tab.
+          var ss = SpreadsheetApp.open(file);
+          var sourceSheet = ss.getSheetByName("Payment Entry");
+          if (!sourceSheet) {
+            Logger.log("Sheet 'Payment Entry' not found in file: " + fileName);
+            continue;
+          }
+          
+          // Determine the last row with data. If less than 2, there’s no data past header.
+          var lastRow = sourceSheet.getLastRow();
+          if (lastRow < 2) {
+            Logger.log("No data to extract in file: " + fileName);
+            continue;
+          }
+          
+          // Extract data from A2 to O(lastRow)
+          var dataRange = sourceSheet.getRange("A2:P" + lastRow);
+          var data = dataRange.getValues();
+          
+          // Filter out rows that are completely blank (or only whitespace)
+          var filteredData = data.filter(function(row) {
+            return row.some(function(cell) {
+              return cell !== null && String(cell).trim() !== "";
+            });
+          });
+          
+          // If after filtering there's no data, skip this file
+          if (filteredData.length === 0) {
+            Logger.log("All rows are blank in file: " + fileName + ". Skipping file.");
+            continue;
+          }
+          
+          // Add the filtered rows to the overall data array
+          allData = allData.concat(filteredData);
+        } catch (error) {
+          Logger.log("Error processing file " + fileName + ": " + error.message);
+        }
+      }
+      
+      // Recursively process any subfolders.
+      var subfolders = currentFolder.getFolders();
+      while (subfolders.hasNext()) {
+        processFolder(subfolders.next());
+      }
+    }
+    
+    processFolder(folder);
+    
+    // Write the data to the destination sheet in one batch.
+    if (allData.length > 0) {
+      destinationSheet.getRange(2, 1, allData.length, allData[0].length).setValues(allData);
+      Logger.log("Data successfully appended to Sheet1. Total rows: " + allData.length);
+    } else {
+      Logger.log("No data found to append.");
+    }
+    
+    Logger.log("Invoice data extraction completed.");
+  } catch (e) {
+    Logger.log("Error: " + e.message);
+    throw e;
+  }
+}
